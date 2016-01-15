@@ -145,12 +145,65 @@ def make_P_Capon(nk,nr,kinc,kmin,rx,ry,icsdm):
                     polariz[i,j,1] = 1 / u[i0].real * np.abs(r1)**2 + 1 / u[i1].real * np.abs(r2)**2 #+ 1 / u[i2].real * np.abs(r3)**2
                 if k == 2:
                     polariz[i,j,2] = 1 / u[i0].real * np.abs(t1)**2 + 1 / u[i1].real * np.abs(t2)**2 #+ 1 / u[i2].real * np.abs(t3)**2
-                Y[:,:] = 0
+
     return polariz
 
 
 
+def make_P_fk(nk,nr,kinc,kmin,rx,ry,icsdm):
+    import numpy as np
+    import scipy as sp
+    from subroutine_CLEAN_3c import rot
 
+    steer = np.zeros((3,3*nr),dtype=complex)
+    Y = np.zeros((3,3),dtype=complex)
+    polariz = np.zeros((nk,nk,3))
+    norm = 1/np.sqrt(nr)
+    for i in range(nk):
+        kx=-2*np.pi*(kmin+float(i*kinc))
+        for j in range(nk):
+            ky=-2*np.pi*(kmin+float(j*kinc))
+            steer[0,:nr]=np.exp(1j*(kx*(rx[0]-rx)+ky*(ry[0]-ry)))*norm
+            steer[1,nr:2*nr] = steer[0,:nr]
+            steer[2,2*nr:] = steer[0,:nr]
+
+            theta = np.arctan2(kx,ky)
+            
+            for k in range(3):
+                xres = steer.conj().dot(icsdm[k]).dot(steer.T)
+
+                u,v = np.linalg.eigh(xres)
+
+
+                uid = u.argsort()[::-1]
+
+                i0 = uid[0]
+                i1 = uid[1]
+                #i2 = uid[2]
+
+                z1   = v[0,i0]
+                z2   = v[0,i1]
+                #z3   = v[0,i2]
+                bh11 = v[1,i0] 
+                bh12 = v[1,i1] 
+                #bh13 = v[1,i2]
+                bh21 = v[2,i0] 
+                bh22 = v[2,i1] 
+                #bh23 = v[2,i2]
+
+
+                r1,t1 = rot(bh11,bh21,theta)
+                r2,t2 = rot(bh12,bh22,theta)
+                #r3,t3 = rot(bh13,bh23,theta)
+
+                if k == 0:
+                    polariz[i,j,0] =  u[i0].real * np.abs(z1)**2 +  u[i1].real * np.abs(z2)**2 #+  u[i2].real * np.abs(z3)**2 
+                if k == 1:
+                    polariz[i,j,1] =  u[i0].real * np.abs(r1)**2 +  u[i1].real * np.abs(r2)**2 #+  u[i2].real * np.abs(r3)**2
+                if k == 2:
+                    polariz[i,j,2] =  u[i0].real * np.abs(t1)**2 +  u[i1].real * np.abs(t2)**2 #+  u[i2].real * np.abs(t3)**2
+
+    return polariz
 
 
 
@@ -271,6 +324,122 @@ def CLEAN_3C_Capon(nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,nk,si):
 
 
 
+
+
+def CLEAN_3C_fk(nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,nk,si):
+    import numpy as np
+    from subroutine_CLEAN_3c import rot
+    from subroutine_CLEAN_3c import wave_type,gkern2
+    kern = gkern2(kernlen=7,nsig=2)
+    steer0 = np.zeros([3,3*nr],dtype=complex)
+    steer1 = np.zeros([3,3*nr],dtype=complex)
+    steer2 = np.zeros([3,3*nr],dtype=complex)
+    icsdm = np.zeros((3,3*nr,3*nr),dtype=complex)
+
+
+    for c3 in range(3):
+        xxs  = np.zeros((3*nr,3*nr),dtype=complex)
+        sxopt  = max_c[c3,0]
+        syopt  = max_c[c3,1]
+        ax     = int((sxopt-smin)/sinc)
+        ay     = int((syopt-smin)/sinc)
+
+        steer  = np.exp(-1j*2*np.pi*freq*(sxopt*(rx[0]-rx)+syopt*(ry[0]-ry)))/np.sqrt(nr)
+        steer0[0,:nr]     = steer
+        steer0[1,nr:2*nr] = steer
+        steer0[2,2*nr:]   = steer
+
+
+
+        xres = steer0.conj().dot(csdm[c3]).dot(steer0.T)
+        u,v = np.linalg.eigh(xres)
+        uid = u.argsort()[::-1]
+        i0 = uid[0]
+        i1 = uid[1]
+
+
+
+        z1   = v[0,i0]
+        z2   = v[0,i1] 
+
+        bh11 = v[1,i0]
+        bh12 = v[1,i1]
+
+        bh21 = v[2,i0]
+        bh22 = v[2,i1]
+
+
+        theta = np.arctan2(sxopt,syopt)
+
+        r1,t1 = rot(bh11,bh21,theta)
+        r2,t2 = rot(bh12,bh22,theta)
+
+
+        z1_phase   = np.angle(z1)
+        z2_phase   = np.angle(z2)
+
+        bh11_phase = np.angle(bh11)
+        bh12_phase = np.angle(bh12)
+
+        bh21_phase = np.angle(bh21)
+        bh22_phase = np.angle(bh22)
+
+        #WT1 = wave_type(z1,r1,t1,sxopt,syopt)
+        #WT2 = wave_type(z2,r2,t2,sxopt,syopt)
+
+        baz = np.arctan2(sxopt,syopt)/np.pi*180
+        if baz<0:
+            baz += 360
+
+        if si == True:
+            if cln == 1 and c3 == 0:
+                print
+                print 'CLEAN iteration |  BAZ    vel | Amplitudes EV0 (Z,R,T) | Amplitudes EV1 (Z,R,T) |   Power of peak EV0 (Z,R,T)   |   Power of peak EV1 (Z,R,T)   |  ZR-Phase EV0 / EV1 |  ZT-Phase EV0 / EV1 |  RT-Phase EV0 / EV1 |'
+            print '     %3i        | %5.01f %5.01f |   %.02f   %.02f   %.02f   |   %.02f   %.02f   %.02f   |  %6.02f   %6.02f   %6.02f  |  %6.02f   %6.02f   %6.02f  | %7.02f  / %7.02f  | %7.02f  / %7.02f  | %7.02f  / %7.02f  |' %(
+                cln,
+                baz,111.19/np.sqrt(sxopt**2 + syopt**2),
+                np.abs(z1),np.abs(r1),np.abs(t1),
+                np.abs(z2),np.abs(r2),np.abs(t2),
+                10*np.log10(np.abs(z1)**2*u[i0].real),10*np.log10(np.abs(r1)**2*u[i0].real),10*np.log10(np.abs(t1)**2*u[i0].real),
+                10*np.log10(np.abs(z2)**2*u[i1].real),10*np.log10(np.abs(r2)**2*u[i1].real),10*np.log10(np.abs(t2)**2*u[i1].real),
+                np.abs(np.angle(z1,deg=True) - np.angle(r1,deg=True)),np.abs(np.angle(z2,deg=True) - np.angle(r2,deg=True)),
+                np.abs(np.angle(z1,deg=True) - np.angle(t1,deg=True)),np.abs(np.angle(z2,deg=True) - np.angle(t2,deg=True)),
+                np.abs(np.angle(r1,deg=True) - np.angle(t1,deg=True)),np.abs(np.angle(r2,deg=True) - np.angle(t2,deg=True)))
+
+
+        steer1[0,:nr]     = np.abs(z1)   * steer * np.exp ( 1j * z1_phase    ) 
+        steer1[1,nr:2*nr] = np.abs(bh11) * steer * np.exp ( 1j * bh11_phase  )
+        steer1[2,2*nr:]   = np.abs(bh21) * steer * np.exp ( 1j * bh21_phase  )
+
+        steer2[0,:nr]     = np.abs(z2)   * steer * np.exp ( 1j * z2_phase    )
+        steer2[1,nr:2*nr] = np.abs(bh12) * steer * np.exp ( 1j * bh12_phase  )
+        steer2[2,2*nr:]   = np.abs(bh22) * steer * np.exp ( 1j * bh22_phase  )
+
+
+
+
+        xxs += control*u[i0].real*np.outer(np.sum(steer1,axis=0),np.sum(steer1,axis=0).conj())
+        xxs += control*u[i1].real*np.outer(np.sum(steer2,axis=0),np.sum(steer2,axis=0).conj())
+
+        csdm[c3] -= xxs
+
+
+        if c3 == 0:
+            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
+                fk_cln[0,ax-3:ax+4,ay-3:ay+4] += kern * ( np.abs(z1)**2 * u[i0].real + np.abs(z2)**2 * u[i1].real ) * control
+            else:
+                fk_cln[0,ax,ay] += ( np.abs(z1)**2 * u[i0].real + np.abs(z2)**2 * u[i1].real ) * control
+        if c3 == 1:
+            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
+                fk_cln[1,ax-3:ax+4,ay-3:ay+4] += kern * ( np.abs(r1)**2 * u[i0].real + np.abs(r2)**2 * u[i1].real ) * control
+            else:
+                fk_cln[1,ax,ay] += ( np.abs(r1)**2 * u[i0].real + np.abs(r2)**2 * u[i1].real ) * control
+        if c3 == 2:
+            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
+                fk_cln[2,ax-3:ax+4,ay-3:ay+4] += kern * ( np.abs(t1)**2 * u[i0].real + np.abs(t2)**2 * u[i1].real ) * control
+            else:
+                fk_cln[2,ax,ay] += ( np.abs(t1)**2 * u[i0].real + np.abs(t2)**2 * u[i1].real ) * control
+    return csdm,fk_cln
 
 
 
