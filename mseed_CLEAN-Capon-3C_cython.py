@@ -70,35 +70,61 @@
 
 import numpy as np
 from obspy import read
+import sys
+sys.path.append('/Users/mgal/Python_codes/Capon_git_testing_ground/CLEAN-Capon-3C')
 from subroutine_CLEAN_3c import *
 from subroutine_cython import *
 
 
-nsamp          = 8000     
-smin           = -40.0
-smax           = 40.0
-sinc           = 0.5
-find           = 120
-fave           = 6
-control        = 0.1
-cln_iter       = 0
-show_peak_info = True     
+
+print '********************************************************************************************************************'
+print 
+print 'Capon-3C beamformer may underestimate the power of sources, but gives a more accurate source distribution with CLEAN'
+print 'If you need accurate power estimates use with care, or switch to the Bartlett (fk) beamformer.'
+print 
+print '********************************************************************************************************************'
+
+
+
+
+nsamp     = 8000
+smin      = -40.0
+smax      = 40.0
+sinc      = 2
+find      = 120
+fave      = 6
+control   = 0.1
+cln_iter  = 150
+
+
+
+src_grd_ref      = 5
+show_peak_info   = False
+show_clean_hist  = False # this option is best used with a small control parameter and a high cln_iter value
+min_relative_pow = -12         
+enhance_vis      = True        
+add_bg           = False                                                           
+inter_mode       = 'bilinear'      
+area             = 7           
+std_g            = 1           
+
 
 
 st  = read('/Users/mgal/seismic_data/PSAR2013/PSAR.2013.001.00.00.BHZ.mseed')
 st0 = read('/Users/mgal/seismic_data/PSAR2013/PSAR.2013.001.00.00.BH1.mseed')
 st1 = read('/Users/mgal/seismic_data/PSAR2013/PSAR.2013.001.00.00.BH2.mseed')
-
 folder =   '/Users/mgal/seismic_data/PSAR2013/'
 meta_f =   folder + 'PSAR.metadata'
 dic_meta = get_metadata(meta_f)
 
+
 st,st0,st1 = equalize(st,st0,st1)
-nr = st.count()
+nr = st0.count()
 rx,ry = metric_mseed(st0,dic_meta,nr)   
 
 print 'PSAR gain is removed!!!!'
 st, st0, st1 = remove_gain(st,st0,st1,nr,gain=3.35801e+09)
+
 
 nwin = int(st0[0].count()/nsamp)*2-1
 dt = st0[0].stats.delta
@@ -116,9 +142,10 @@ print 'CLEAN-Capon-3C DOA estimation is performed at:','freq',freq,'+-',fave/flo
 pdic = PSAR_dict()
 xt = make_subwindows_PSAR(nr,nwin,pdic,st,st0,st1,nsamp)
 csdm = make_csdm_cython(nwin,nr,xt,nsamp,find,fave)
-
 icsdm = np.zeros((3,3*nr,3*nr),dtype=complex)
 fk_cln = np.zeros((3,nk,nk))
+print
+pwrZ = 10*np.log10(np.trace(csdm[0,:nr,:nr]).real) 
 
 for cln in range(cln_iter+1):
     if cln != 0:
@@ -127,28 +154,45 @@ for cln in range(cln_iter+1):
         icsdm[k] = np.linalg.inv(csdm[k]) 
     polariz = make_P_Capon_cython_v3(nk,nr,kinc,kmin,rx,ry,icsdm)
     max_c, max_o = get_max_cython(polariz,smin,sinc,cln)
+    if src_grd_ref > 0:
+    	max_c = refine_max_Capon(src_grd_ref,polariz,nk,nr,rx,ry,icsdm,max_c,smin,sinc,freq)
+    if show_clean_hist == True:
+       	cln_hist.append(max_c)
 
 
-tt1 = (fk_cln[0] + polariz[:,:,0] )
-tt2 = (fk_cln[1] + polariz[:,:,1] )
-tt3 = (fk_cln[2] + polariz[:,:,2] )
-
-Z = (tt1/tt1.max())
-R = (tt2/tt2.max())
-T = (tt3/tt3.max())
-
-print '-------------------------'
-print 'Power info for strongest source:'
-print 'Total   %.02f dB'%(10*np.log10((tt1+tt2+tt3).max()))
-print 'Z-comp  %.02f dB'%(10*np.log10(tt1.max()))
-print 'R-comp  %.02f dB'%(10*np.log10(tt2.max()))
-print 'T-comp  %.02f dB'%(10*np.log10(tt3.max()))
-print '-------------------------'
-
-make_plot(Z,R,T,smin,smax)
+Z = (fk_cln[0])
+R = (fk_cln[1])
+T = (fk_cln[2])
 
 
+print 'Power estimation form Z component autocorrelations: %.02f [dB]'%(pwrZ)
+print 'This value includes every signal on the component, i.e. also signals'
+print 'that do not pass as plain wave over the array, or noise, glitches and local stuff. '
+print 'Hence this value will always be higher than the extracted CLEAN signal.'
+if cln_iter > 0 :
+	print '-------------------------'
+	print 'Power info for strongest cleaned-source (grid size dependent):'
+	print 'Total   %.02f dB'%(10*np.log10((Z+R+T).max()))
+	print 'Z-comp  %.02f dB'%(10*np.log10(Z.max()))
+	print 'R-comp  %.02f dB'%(10*np.log10(R.max()))
+	print 'T-comp  %.02f dB'%(10*np.log10(T.max()))
+	print '-------------------------'
+	print
+	print '-------------------------'
+	print 'Power info for total cleaned power on each component:'
+	print '(If power of Z from autocorrelations is smaller than' 
+	print 'CLEAN power, either your step or iteration parameter'
+	print 'is to large check with show_clean_hist=True)'
+	print 'Total   %.02f dB'%(10*np.log10((Z+R+T).sum()))
+	print 'Z-comp  %.02f dB'%(10*np.log10(Z.sum()))
+	print 'R-comp  %.02f dB'%(10*np.log10(R.sum()))
+	print 'T-comp  %.02f dB'%(10*np.log10(T.sum()))
+	print '-------------------------'
 
-
-
-
+if add_bg==True or cln_iter==0:
+    Z = (fk_cln[0] + polariz[:,:,0])
+    R = (fk_cln[1] + polariz[:,:,1])
+    T = (fk_cln[2] + polariz[:,:,2])
+if show_clean_hist == True:
+	plt_hist(cln_hist,cln_iter)
+make_plot(Z,R,T,smin,smax,min_relative_pow,enhance_vis,inter_mode,area,std_g)

@@ -57,11 +57,10 @@ def get_max_cython(polariz,float smin,float sinc,int cln):
 
 def CLEAN_3C_Capon_cython(int nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,int nk,si):
     from subroutine_cython import rot_cython as rot
-    from subroutine_CLEAN_3c import wave_type,gkern2
+
     
     cdef int c3
 
-    kern = gkern2(kernlen=7,nsig=2)
     steer0 = np.zeros([3,3*nr],dtype=complex)
     steer1 = np.zeros([3,3*nr],dtype=complex)
     steer2 = np.zeros([3,3*nr],dtype=complex)
@@ -115,8 +114,6 @@ def CLEAN_3C_Capon_cython(int nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,
         bh21_phase = np.angle(bh21)
         bh22_phase = np.angle(bh22)
 
-        #WT1 = wave_type(z1,r1,t1,sxopt,syopt)
-        #WT2 = wave_type(z2,r2,t2,sxopt,syopt)
 
         baz = np.arctan2(sxopt,syopt)/np.pi*180
         if baz<0:
@@ -155,29 +152,19 @@ def CLEAN_3C_Capon_cython(int nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,
 
 
         if c3 == 0:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[0,ax-3:ax+4,ay-3:ay+4] += kern * ( cabs(z1)**2 / u[i0].real + cabs(z2)**2 / u[i1].real ) * control
-            else:
-                fk_cln[0,ax,ay] += ( cabs(z1)**2 / u[i0].real + cabs(z2)**2 / u[i1].real ) * control
+            fk_cln[0,ax,ay] += ( cabs(z1)**2 / u[i0].real + cabs(z2)**2 / u[i1].real ) * control
         if c3 == 1:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[1,ax-3:ax+4,ay-3:ay+4] += kern * ( cabs(r1)**2 / u[i0].real + cabs(r2)**2 / u[i1].real ) * control
-            else:
-                fk_cln[1,ax,ay] += ( cabs(r1)**2 / u[i0].real + cabs(r2)**2 / u[i1].real ) * control
+            fk_cln[1,ax,ay] += ( cabs(r1)**2 / u[i0].real + cabs(r2)**2 / u[i1].real ) * control
         if c3 == 2:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[2,ax-3:ax+4,ay-3:ay+4] += kern * ( cabs(t1)**2 / u[i0].real + cabs(t2)**2 / u[i1].real ) * control
-            else:
-                fk_cln[2,ax,ay] += ( cabs(t1)**2 / u[i0].real + cabs(t2)**2 / u[i1].real ) * control
+            fk_cln[2,ax,ay] += ( cabs(t1)**2 / u[i0].real + cabs(t2)**2 / u[i1].real ) * control
     return csdm,fk_cln
 
 def CLEAN_3C_fk_cython(int nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,int nk,si):
     from subroutine_cython import rot_cython as rot
-    from subroutine_CLEAN_3c import wave_type,gkern2
+
     
     cdef int c3
 
-    kern = gkern2(kernlen=7,nsig=2)
     steer0 = np.zeros([3,3*nr],dtype=complex)
     steer1 = np.zeros([3,3*nr],dtype=complex)
     steer2 = np.zeros([3,3*nr],dtype=complex)
@@ -230,8 +217,7 @@ def CLEAN_3C_fk_cython(int nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln
         bh21_phase = np.angle(bh21)
         bh22_phase = np.angle(bh22)
 
-        #WT1 = wave_type(z1,r1,t1,sxopt,syopt)
-        #WT2 = wave_type(z2,r2,t2,sxopt,syopt)
+
 
         baz = np.arctan2(sxopt,syopt)/np.pi*180
         if baz<0:
@@ -270,20 +256,11 @@ def CLEAN_3C_fk_cython(int nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln
 
 
         if c3 == 0:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[0,ax-3:ax+4,ay-3:ay+4] += kern * ( cabs(z1)**2 * u[i0].real + cabs(z2)**2 * u[i1].real ) * control
-            else:
-                fk_cln[0,ax,ay] += ( cabs(z1)**2 * u[i0].real + cabs(z2)**2 * u[i1].real ) * control
+            fk_cln[0,ax,ay] += ( cabs(z1)**2 * u[i0].real + cabs(z2)**2 * u[i1].real ) * control
         if c3 == 1:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[1,ax-3:ax+4,ay-3:ay+4] += kern * ( cabs(r1)**2 * u[i0].real + cabs(r2)**2 * u[i1].real ) * control
-            else:
-                fk_cln[1,ax,ay] += ( cabs(r1)**2 * u[i0].real + cabs(r2)**2 * u[i1].real ) * control
+            fk_cln[1,ax,ay] += ( cabs(r1)**2 * u[i0].real + cabs(r2)**2 * u[i1].real ) * control
         if c3 == 2:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[2,ax-3:ax+4,ay-3:ay+4] += kern * ( cabs(t1)**2 * u[i0].real + cabs(t2)**2 * u[i1].real ) * control
-            else:
-                fk_cln[2,ax,ay] += ( cabs(t1)**2 * u[i0].real + cabs(t2)**2 * u[i1].real ) * control
+            fk_cln[2,ax,ay] += ( cabs(t1)**2 * u[i0].real + cabs(t2)**2 * u[i1].real ) * control
     return csdm,fk_cln
 
 def make_csdm_cython(int nwin,int nr,xt,int nsamp,int find,int fave):
@@ -298,7 +275,7 @@ def make_csdm_cython(int nwin,int nr,xt,int nsamp,int find,int fave):
             csdm[0] += np.outer(ffts[:,m],ffts[:,m].T.conj())
             
     print 'Normalization is adapted to Hann window'
-    csdm[0] /= nwin * ( 2 * fave +1 ) * nsamp * nr * 0.5
+    csdm[0] /= nwin * ( 2 * fave +1 ) * nsamp * nr * 3/8.
     csdm[1] = np.copy(csdm[0])
     csdm[2] = np.copy(csdm[0])
     return csdm

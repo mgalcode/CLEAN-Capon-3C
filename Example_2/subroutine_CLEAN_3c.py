@@ -1,3 +1,155 @@
+def plt_hist(cln_hist,cln_iter):
+    import numpy as np
+    import matplotlib.pyplot as plt
+    
+    baz = np.zeros([3,cln_iter+1])
+    vel = np.zeros([3,cln_iter+1])
+    idd = 0
+    for i in cln_hist:
+        for j in range(3):
+            x =  np.arctan2(i[j,0],i[j,1])/np.pi*180
+            if x<0: x+=360
+            baz[j,idd] = x
+            vel[j,idd] = 111.19/np.sqrt(i[j,0]**2 + i[j,1]**2)
+        idd += 1
+
+    fig = plt.figure(figsize=(25, 6))
+    ax1=fig.add_subplot(131)
+    im = ax1.scatter(range(cln_iter+1), baz[0], s=50 ,c=vel[0], alpha=1,cmap='bwr')
+    cbar = plt.colorbar(im)
+    cbar.set_label('velocity [km/s]')
+    ax2=fig.add_subplot(132)
+    im = ax2.scatter(range(cln_iter+1), baz[1], s=50 ,c=vel[1], alpha=1,cmap='bwr')
+    cbar = plt.colorbar(im)
+    cbar.set_label('velocity [km/s]')
+    ax3=fig.add_subplot(133)
+    im = ax3.scatter(range(cln_iter+1), baz[2], s=50 ,c=vel[2], alpha=1,cmap='bwr')
+    cbar=plt.colorbar(im)
+    cbar.set_label('velocity [km/s]')
+    ax1.set_ylim([0,360])
+    ax1.set_xlabel('iteration')
+    ax1.set_ylabel('backazimuth [deg]')
+    ax2.set_ylim([0,360])
+    ax2.set_xlabel('iteration')
+    ax3.set_ylim([0,360])
+    ax3.set_xlabel('iteration')
+
+
+
+def refinment_fk(ref_fk,sxopt,syopt,nk,rx,ry,nr,icsdm,freq,sinc,k):
+    import numpy as np
+    import scipy as sp
+    from subroutine_CLEAN_3c import rot
+
+    steer = np.zeros((3,3*nr),dtype=complex)
+    norm = 1/np.sqrt(nr)
+    for i in range(-1,2):
+        kx=-2*np.pi*freq*(sxopt + sinc*i)
+        for j in range(-1,2):
+            ky=-2*np.pi*freq*(syopt + sinc*j)
+            steer[0,:nr]=np.exp(1j*(kx*(rx[0]-rx)+ky*(ry[0]-ry)))*norm
+            steer[1,nr:2*nr] = steer[0,:nr]
+            steer[2,2*nr:] = steer[0,:nr]
+
+            theta = np.arctan2(kx,ky)
+            xres = steer.conj().dot(icsdm).dot(steer.T)
+            u,v = np.linalg.eigh(xres)
+            uid = u.argsort()[::-1]
+            i0 = uid[0]
+            i1 = uid[1]
+            z1   = v[0,i0]
+            z2   = v[0,i1]
+            bh11 = v[1,i0] 
+            bh12 = v[1,i1] 
+            bh21 = v[2,i0] 
+            bh22 = v[2,i1] 
+            r1,t1 = rot(bh11,bh21,theta)
+            r2,t2 = rot(bh12,bh22,theta)
+            if k == 0:
+                ref_fk[i+1,j+1] =  u[i0].real * np.abs(z1)**2 +  u[i1].real * np.abs(z2)**2 #+  u[i2].real * np.abs(z3)**2 
+            if k == 1:
+                ref_fk[i+1,j+1] =  u[i0].real * np.abs(r1)**2 +  u[i1].real * np.abs(r2)**2 #+  u[i2].real * np.abs(r3)**2
+            if k == 2:
+                ref_fk[i+1,j+1] =  u[i0].real * np.abs(t1)**2 +  u[i1].real * np.abs(t2)**2 #+  u[i2].real * np.abs(t3)**2
+
+    return ref_fk
+
+
+def refine_max_fk(src_grd_ref,polariz,nk,nr,rx,ry,icsdm,max_c,smin,sinc,freq):
+    import numpy as np
+    for k in range(3):
+        if max_c[k,0]!= smin and max_c[k,0]!=-smin and max_c[k,1]!= smin and max_c[k,1]!=-smin:
+            i = np.round((max_c[k,0] - smin)/sinc).astype(np.int)
+            j = np.round((max_c[k,1] - smin)/sinc).astype(np.int)
+            ref_fk = polariz[i-1:i+2,j-1:j+2,k].copy()
+            for ijk in range(src_grd_ref):
+               xsinc = sinc/float((ijk+1)**2)
+               ref_fk = refinment_fk(ref_fk,max_c[k,0],max_c[k,1],nk,rx,ry,nr,icsdm[k],freq,xsinc,k)
+               i,j = np.unravel_index(ref_fk.argmax(), ref_fk.shape)
+               i -= 1
+               j -= 1
+               max_c[k,0] += xsinc*i
+               max_c[k,1] += xsinc*j
+    return max_c
+
+
+def refinment_Capon(ref_fk,sxopt,syopt,nk,rx,ry,nr,icsdm,freq,sinc,k):
+    import numpy as np
+    import scipy as sp
+    from subroutine_CLEAN_3c import rot
+
+    steer = np.zeros((3,3*nr),dtype=complex)
+    norm = 1/np.sqrt(nr)
+    for i in range(-1,2):
+        kx=-2*np.pi*freq*(sxopt + sinc*i)
+        for j in range(-1,2):
+            ky=-2*np.pi*freq*(syopt + sinc*j)
+            steer[0,:nr]=np.exp(1j*(kx*(rx[0]-rx)+ky*(ry[0]-ry)))*norm
+            steer[1,nr:2*nr] = steer[0,:nr]
+            steer[2,2*nr:] = steer[0,:nr]
+
+            theta = np.arctan2(kx,ky)
+            xres = steer.conj().dot(icsdm).dot(steer.T)
+            u,v = np.linalg.eigh(xres)
+            uid = u.argsort()
+            i0 = uid[0]
+            i1 = uid[1]
+            z1   = v[0,i0]
+            z2   = v[0,i1]
+            bh11 = v[1,i0] 
+            bh12 = v[1,i1] 
+            bh21 = v[2,i0] 
+            bh22 = v[2,i1] 
+            r1,t1 = rot(bh11,bh21,theta)
+            r2,t2 = rot(bh12,bh22,theta)
+            if k == 0:
+                ref_fk[i+1,j+1] = 1 / u[i0].real * np.abs(z1)**2 + 1 / u[i1].real * np.abs(z2)**2 #+ 1 / u[i2].real * np.abs(z3)**2 
+            if k == 1:
+                ref_fk[i+1,j+1] = 1 / u[i0].real * np.abs(r1)**2 + 1 / u[i1].real * np.abs(r2)**2 #+ 1 / u[i2].real * np.abs(r3)**2
+            if k == 2:
+                ref_fk[i+1,j+1] = 1 / u[i0].real * np.abs(t1)**2 + 1 / u[i1].real * np.abs(t2)**2 #+ 1 / u[i2].real * np.abs(t3)**2
+
+    return ref_fk
+
+
+def refine_max_Capon(src_grd_ref,polariz,nk,nr,rx,ry,icsdm,max_c,smin,sinc,freq):
+    import numpy as np
+    for k in range(3):
+        if max_c[k,0]!= smin and max_c[k,0]!=-smin and max_c[k,1]!= smin and max_c[k,1]!=-smin:
+            i = np.round((max_c[k,0] - smin)/sinc).astype(np.int)
+            j = np.round((max_c[k,1] - smin)/sinc).astype(np.int)
+            ref_fk = polariz[i-1:i+2,j-1:j+2,k].copy()
+            for ijk in range(src_grd_ref):
+               xsinc = sinc/float((ijk+1)**2)
+               ref_fk = refinment_Capon(ref_fk,max_c[k,0],max_c[k,1],nk,rx,ry,nr,icsdm[k],freq,xsinc,k)
+               i,j = np.unravel_index(ref_fk.argmax(), ref_fk.shape)
+               i -= 1
+               j -= 1
+               max_c[k,0] += xsinc*i
+               max_c[k,1] += xsinc*j
+    return max_c
+
+
 def get_rxy_sac(nr,st0):
     from subroutine_CLEAN_3c import grt
     import numpy as np
@@ -37,55 +189,77 @@ def get_max(polariz,smin,sinc,cln):
 
 
 
-def make_plot(Z,R,T,smin,smax):
+def make_plot(Z,R,T,smin,smax,min_relative_pow,enhance_vis,inter_mode,area,std_g):
     import numpy as np
     import matplotlib.pyplot as plt
+    from scipy import signal
+    from subroutine_CLEAN_3c import gkern2
+
+    kern = gkern2(kernlen=area,nsig=std_g)
+
+    Z = signal.fftconvolve(Z,kern,mode='same')
+    tmp = np.where(Z<=0)
+    Z[tmp] = Z.max()*10**(min_relative_pow)
+
+    R = signal.fftconvolve(R,kern,mode='same')
+    tmp = np.where(R<=0)
+    R[tmp] = R.max()*10**(min_relative_pow)
+
+    T = signal.fftconvolve(T,kern,mode='same')
+    tmp = np.where(T<=0)
+    T[tmp] = T.max()*10**(min_relative_pow)
+
+
     fig = plt.figure(figsize=(15, 13))
     ax=fig.add_subplot(221)
-    im = plt.imshow(10*np.log10((Z+R+T) / (Z+R+T).max()).T,extent=[smin,smax, smin, smax],origin='lower',cmap='gist_stern_r')
-    circle=plt.Circle((0,0),0.3*111.19,color='w',fill=False,alpha=0.4)
-    plt.gcf().gca().add_artist(circle)
-    circle=plt.Circle((0,0),27,color='w',fill=False,alpha=0.4)
-    plt.gcf().gca().add_artist(circle)
-    plt.title('CLEAN - Capon Beamformer 3C ')
+    im = plt.imshow(10*np.log10((Z+R+T) / (Z+R+T).max()).T,vmin = min_relative_pow,extent=[smin,smax, smin, smax],origin='lower',cmap='gist_stern_r',interpolation=inter_mode)
+    # circle=plt.Circle((0,0),0.3*111.19,color='w',fill=False,alpha=0.4)
+    # plt.gcf().gca().add_artist(circle)
+    # circle=plt.Circle((0,0),27,color='w',fill=False,alpha=0.4)
+    # plt.gcf().gca().add_artist(circle)
+    plt.title('CLEAN - Beamformer 3C ')
     ax.set_xlabel('East/West Slowness [s/deg]')
     ax.set_ylabel('North/South Slowness [s/deg]')
-    plt.colorbar(im)
+    cbar = plt.colorbar(im)
+    cbar.set_label('relative power (dB)',rotation=270,labelpad=20)
 
 
 
     ax=fig.add_subplot(222)
-    im = plt.imshow(10*np.log10(Z).T, extent=[smin,smax, smin,smax], vmin = -12,vmax = 0,origin='lower',cmap='gist_stern_r')
-    circle=plt.Circle((0,0),0.3*111.19,color='w',fill=False,alpha=0.4)
-    plt.gcf().gca().add_artist(circle)
-    circle=plt.Circle((0,0),27,color='w',fill=False,alpha=0.4)
-    plt.gcf().gca().add_artist(circle)
+    im = plt.imshow(10*np.log10(Z/Z.max()).T, extent=[smin,smax, smin,smax], vmin = min_relative_pow,vmax = 0,origin='lower',cmap='gist_stern_r',interpolation=inter_mode)
+    # circle=plt.Circle((0,0),0.3*111.19,color='w',fill=False,alpha=0.4)
+    # plt.gcf().gca().add_artist(circle)
+    # circle=plt.Circle((0,0),27,color='w',fill=False,alpha=0.4)
+    # plt.gcf().gca().add_artist(circle)
     plt.title('Vertical')
     ax.set_xlabel('East/West Slowness [s/deg]')
     ax.set_ylabel('North/South Slowness [s/deg]')
-    plt.colorbar(im)
+    cbar = plt.colorbar(im)
+    cbar.set_label('relative power (dB)',rotation=270,labelpad=20)
 
     ax=fig.add_subplot(223)
-    im = plt.imshow(10*np.log10(R).T, extent=[smin,smax, smin,smax], vmin = -12,vmax = 0,origin='lower',cmap='gist_stern_r')
-    circle=plt.Circle((0,0),0.3*111.19,color='w',fill=False,alpha=0.4)
-    plt.gcf().gca().add_artist(circle)
-    circle=plt.Circle((0,0),27,color='w',fill=False,alpha=0.4)
-    plt.gcf().gca().add_artist(circle)
+    im = plt.imshow(10*np.log10(R/R.max()).T, extent=[smin,smax, smin,smax], vmin = min_relative_pow,vmax = 0,origin='lower',cmap='gist_stern_r',interpolation=inter_mode)
+    # circle=plt.Circle((0,0),0.3*111.19,color='w',fill=False,alpha=0.4)
+    # plt.gcf().gca().add_artist(circle)
+    # circle=plt.Circle((0,0),27,color='w',fill=False,alpha=0.4)
+    # plt.gcf().gca().add_artist(circle)
     plt.title('Radial')
     ax.set_xlabel('East/West Slowness [s/deg]')
     ax.set_ylabel('North/South Slowness [s/deg]')
-    plt.colorbar(im)
+    cbar = plt.colorbar(im)
+    cbar.set_label('relative power (dB)',rotation=270,labelpad=20)
 
     ax=fig.add_subplot(224)
-    im = plt.imshow(10*np.log10(T).T, extent=[smin,smax, smin,smax], vmin = -12,vmax = 0,origin='lower',cmap='gist_stern_r')
-    circle=plt.Circle((0,0),0.3*111.19,color='w',fill=False,alpha=0.4)
-    plt.gcf().gca().add_artist(circle)
-    circle=plt.Circle((0,0),27,color='w',fill=False,alpha=0.4)
-    plt.gcf().gca().add_artist(circle)
+    im = plt.imshow(10*np.log10(T/T.max()).T, extent=[smin,smax, smin,smax], vmin = min_relative_pow,vmax = 0,origin='lower',cmap='gist_stern_r',interpolation=inter_mode)
+    # circle=plt.Circle((0,0),0.3*111.19,color='w',fill=False,alpha=0.4)
+    # plt.gcf().gca().add_artist(circle)
+    # circle=plt.Circle((0,0),27,color='w',fill=False,alpha=0.4)
+    # plt.gcf().gca().add_artist(circle)
     plt.title('Transverse')
     ax.set_xlabel('East/West Slowness [s/deg]')
     ax.set_ylabel('North/South Slowness [s/deg]')
-    plt.colorbar(im)
+    cbar = plt.colorbar(im)
+    cbar.set_label('relative power (dB)',rotation=270,labelpad=20)
     plt.tight_layout()
 
 
@@ -210,8 +384,6 @@ def make_P_fk(nk,nr,kinc,kmin,rx,ry,icsdm):
 def CLEAN_3C_Capon(nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,nk,si):
     import numpy as np
     from subroutine_CLEAN_3c import rot
-    from subroutine_CLEAN_3c import wave_type,gkern2
-    kern = gkern2(kernlen=7,nsig=2)
     steer0 = np.zeros([3,3*nr],dtype=complex)
     steer1 = np.zeros([3,3*nr],dtype=complex)
     steer2 = np.zeros([3,3*nr],dtype=complex)
@@ -265,8 +437,6 @@ def CLEAN_3C_Capon(nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,nk,si):
         bh21_phase = np.angle(bh21)
         bh22_phase = np.angle(bh22)
 
-        #WT1 = wave_type(z1,r1,t1,sxopt,syopt)
-        #WT2 = wave_type(z2,r2,t2,sxopt,syopt)
 
         baz = np.arctan2(sxopt,syopt)/np.pi*180
         if baz<0:
@@ -306,20 +476,11 @@ def CLEAN_3C_Capon(nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,nk,si):
 
 
         if c3 == 0:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[0,ax-3:ax+4,ay-3:ay+4] += kern * ( np.abs(z1)**2 / u[i0].real + np.abs(z2)**2 / u[i1].real ) * control
-            else:
-                fk_cln[0,ax,ay] += ( np.abs(z1)**2 / u[i0].real + np.abs(z2)**2 / u[i1].real ) * control
+            fk_cln[0,ax,ay] += ( np.abs(z1)**2 / u[i0].real + np.abs(z2)**2 / u[i1].real ) * control
         if c3 == 1:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[1,ax-3:ax+4,ay-3:ay+4] += kern * ( np.abs(r1)**2 / u[i0].real + np.abs(r2)**2 / u[i1].real ) * control
-            else:
-                fk_cln[1,ax,ay] += ( np.abs(r1)**2 / u[i0].real + np.abs(r2)**2 / u[i1].real ) * control
+            fk_cln[1,ax,ay] += ( np.abs(r1)**2 / u[i0].real + np.abs(r2)**2 / u[i1].real ) * control
         if c3 == 2:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[2,ax-3:ax+4,ay-3:ay+4] += kern * ( np.abs(t1)**2 / u[i0].real + np.abs(t2)**2 / u[i1].real ) * control
-            else:
-                fk_cln[2,ax,ay] += ( np.abs(t1)**2 / u[i0].real + np.abs(t2)**2 / u[i1].real ) * control
+            fk_cln[2,ax,ay] += ( np.abs(t1)**2 / u[i0].real + np.abs(t2)**2 / u[i1].real ) * control
     return csdm,fk_cln
 
 
@@ -329,8 +490,8 @@ def CLEAN_3C_Capon(nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,nk,si):
 def CLEAN_3C_fk(nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,nk,si):
     import numpy as np
     from subroutine_CLEAN_3c import rot
-    from subroutine_CLEAN_3c import wave_type,gkern2
-    kern = gkern2(kernlen=7,nsig=2)
+
+
     steer0 = np.zeros([3,3*nr],dtype=complex)
     steer1 = np.zeros([3,3*nr],dtype=complex)
     steer2 = np.zeros([3,3*nr],dtype=complex)
@@ -384,8 +545,7 @@ def CLEAN_3C_fk(nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,nk,si):
         bh21_phase = np.angle(bh21)
         bh22_phase = np.angle(bh22)
 
-        #WT1 = wave_type(z1,r1,t1,sxopt,syopt)
-        #WT2 = wave_type(z2,r2,t2,sxopt,syopt)
+
 
         baz = np.arctan2(sxopt,syopt)/np.pi*180
         if baz<0:
@@ -425,20 +585,11 @@ def CLEAN_3C_fk(nr,max_c,smin,sinc,freq,rx,ry,csdm,control,fk_cln,cln,nk,si):
 
 
         if c3 == 0:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[0,ax-3:ax+4,ay-3:ay+4] += kern * ( np.abs(z1)**2 * u[i0].real + np.abs(z2)**2 * u[i1].real ) * control
-            else:
-                fk_cln[0,ax,ay] += ( np.abs(z1)**2 * u[i0].real + np.abs(z2)**2 * u[i1].real ) * control
+            fk_cln[0,ax,ay] += ( np.abs(z1)**2 * u[i0].real + np.abs(z2)**2 * u[i1].real ) * control
         if c3 == 1:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[1,ax-3:ax+4,ay-3:ay+4] += kern * ( np.abs(r1)**2 * u[i0].real + np.abs(r2)**2 * u[i1].real ) * control
-            else:
-                fk_cln[1,ax,ay] += ( np.abs(r1)**2 * u[i0].real + np.abs(r2)**2 * u[i1].real ) * control
+            fk_cln[1,ax,ay] += ( np.abs(r1)**2 * u[i0].real + np.abs(r2)**2 * u[i1].real ) * control
         if c3 == 2:
-            if (ax-3>=0 and  ax+4 <= nk and  ay-3 >= 0 and ay+4 <= nk):
-                fk_cln[2,ax-3:ax+4,ay-3:ay+4] += kern * ( np.abs(t1)**2 * u[i0].real + np.abs(t2)**2 * u[i1].real ) * control
-            else:
-                fk_cln[2,ax,ay] += ( np.abs(t1)**2 * u[i0].real + np.abs(t2)**2 * u[i1].real ) * control
+            fk_cln[2,ax,ay] += ( np.abs(t1)**2 * u[i0].real + np.abs(t2)**2 * u[i1].real ) * control
     return csdm,fk_cln
 
 
@@ -457,7 +608,7 @@ def make_csdm(nwin,nr,xt,nsamp,find,fave):
         for m in range(find-fave,find+fave+1):
             csdm[0] += np.outer(ffts[:,m],ffts[:,m].T.conj())
     print 'Normalization is adapted to Hann window'
-    csdm[0] /= nwin * ( 2 * fave +1 ) * nsamp * 0.5 * nr
+    csdm[0] /= nwin * ( 2 * fave +1 ) * nsamp * nr * 3/8.  #3/8 is the fraction to take into account the Hann window power recudction.
     csdm[1] = np.copy(csdm[0])
     csdm[2] = np.copy(csdm[0])
     return csdm
@@ -522,9 +673,9 @@ def PSAR_dict():
 
 
 def metric_mseed(st,d,nr):
-    import util as ut
     import numpy as np
     import scipy as sp
+    from subroutine_CLEAN_3c import grt
     '''
     function takes data matrix and returns interstation distances rx and ry (vectors) in [deg].
     '''
@@ -533,7 +684,7 @@ def metric_mseed(st,d,nr):
     ry = np.zeros(nr)
     for i in range(nr):
         rx_i,ry_i = d[st[i].stats.station]
-        decl,dist,az,baz = ut.grt(float(rx_0),float(ry_0),float(rx_i),float(ry_i))
+        decl,dist,az,baz = grt(float(rx_0),float(ry_0),float(rx_i),float(ry_i))
         #decl,dist,az,baz = ut.grt(st[0].stats.sac.stla,st[0].stats.sac.stlo,st[i].stats.sac.stla,st[i].stats.sac.stlo)
         rx[i] = decl*sp.cos(0.017453*(90.0-az))
         ry[i] = decl*sp.sin(0.017453*(90.0-az))
@@ -559,25 +710,6 @@ def get_metadata_NORSAR(meta_f):
     return d
 
 
-def wave_type(z,r,t,sxopt,syopt):
-    import numpy as np
-    if np.abs(t) > np.sqrt(0.5):
-        WT = 'SH'
-    else:
-        zrp = np.abs( np.angle(z) - np.angle(r) )
-        if 111.19/np.sqrt(sxopt**2+syopt**2)<5.25:
-            if zrp > 0.66*np.pi:
-                WT = 'SV'
-            elif zrp < 0.33*np.pi:
-                WT = 'Sx'
-            else:
-                if 111.19/np.sqrt(sxopt**2+syopt**2) >3.8:
-                    WT = 'Lg'
-                else:
-                    WT = 'Rg'
-        else:
-            WT = 'P'
-    return WT
 
 
 def gkern2(kernlen=21, nsig=3):
@@ -700,23 +832,7 @@ def get_path_mseed_3C(station,d,i,folder,year):
     tmp3 = '%s%s.%s.%03d.%02d.00.%s.mseed' % (folder,station,year,d+1,i,'BH2')
     return tmp1,tmp2,tmp3
     
-def metric_mseed(st,d,nr):
-    import util as ut
-    import numpy as np
-    import scipy as sp
-    '''
-    function takes data matrix and returns interstation distances rx and ry (vectors) in [deg].
-    '''
-    rx_0,ry_0 = d[st[0].stats.station]
-    rx = np.zeros(nr)
-    ry = np.zeros(nr)
-    for i in range(nr):
-        rx_i,ry_i = d[st[i].stats.station]
-        decl,dist,az,baz = ut.grt(float(rx_0),float(ry_0),float(rx_i),float(ry_i))
-        #decl,dist,az,baz = ut.grt(st[0].stats.sac.stla,st[0].stats.sac.stlo,st[i].stats.sac.stla,st[i].stats.sac.stlo)
-        rx[i] = decl*sp.cos(0.017453*(90.0-az))
-        ry[i] = decl*sp.sin(0.017453*(90.0-az))
-    return rx,ry
+
 
 def f_output_clean(fk,d,ii,rmvd):
     import numpy as np
